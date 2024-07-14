@@ -1,7 +1,6 @@
 import asyncio
 import aiofiles
-import shutil
-from aiofiles.os import makedirs, path, scandir
+from aiopath import AsyncPath
 from argparse import ArgumentParser
 import logging
 
@@ -12,7 +11,7 @@ async def copy_file(src_file, dest_folder):
     """Копіює файл у відповідну підпапку у цільовій папці на основі його розширення"""
     ext = src_file.suffix
     target_folder = dest_folder / ext[1:]  # видаляємо перший символ '.' з розширення
-    await makedirs(target_folder, exist_ok=True)
+    await target_folder.mkdir(parents=True, exist_ok=True)
     dest_file = target_folder / src_file.name
 
     async with aiofiles.open(src_file, 'rb') as src:
@@ -27,29 +26,35 @@ async def copy_file(src_file, dest_folder):
 
 async def read_folder(src_folder, dest_folder):
     """Рекурсивно читає всі файли у вихідній папці та її підпапках"""
-    async for entry in scandir(src_folder):
-        if entry.is_dir():
-            await read_folder(entry.path, dest_folder)
-        elif entry.is_file():
-            await copy_file(entry.path, dest_folder)
+    async for entry in src_folder.iterdir():
+        if await entry.is_dir():
+            await read_folder(entry, dest_folder)
+        elif await entry.is_file():
+            await copy_file(entry, dest_folder)
         else:
-            logging.warning(f'Невідомий тип: {entry.path}')
+            logging.warning(f'Невідомий тип: {entry}')
 
-def main():
+async def main():
     parser = ArgumentParser(description="Асинхронне сортування файлів за розширенням")
-    parser.add_argument('src_folder', type=str, help="Вихідна папка")
-    parser.add_argument('dest_folder', type=str, help="Цільова папка")
+    parser.add_argument('src_folder', type=str, nargs='?', help="Вихідна папка")
+    parser.add_argument('dest_folder', type=str, nargs='?', help="Цільова папка")
     
     args = parser.parse_args()
 
-    src_folder = path.abspath(args.src_folder)
-    dest_folder = path.abspath(args.dest_folder)
+    # Запит на введення адреси вихідної та цільової папок, якщо не задано аргументами командного рядка
+    if not args.src_folder:
+        args.src_folder = input("Введіть шлях до вихідної папки: ").strip()
+    if not args.dest_folder:
+        args.dest_folder = input("Введіть шлях до цільової папки: ").strip()
+
+    src_folder = await AsyncPath(args.src_folder).resolve()
+    dest_folder = await AsyncPath(args.dest_folder).resolve()
     
-    if not path.exists(src_folder):
+    if not await src_folder.exists():
         logging.error(f'Вихідна папка не існує: {src_folder}')
         return
     
-    asyncio.run(read_folder(src_folder, dest_folder))
+    await read_folder(src_folder, dest_folder)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
